@@ -26,7 +26,7 @@
       <div class="settings-grid">
         <label class="range-field"><span><strong>Ink sensitivity</strong><output id="sensitivity-output">52</output></span><input id="sensitivity" type="range" min="0" max="100" value="52"><small>Higher captures lighter and finer strokes</small></label>
         <label class="range-field"><span><strong>Noise removal</strong><output id="denoise-output">45</output></span><input id="denoise" type="range" min="0" max="100" value="45"><small>Higher removes more isolated dust</small></label>
-        <label class="range-field"><span><strong>Crop padding</strong><output id="padding-output">2%</output></span><input id="padding" type="range" min="0" max="12" step="0.5" value="2"><small>Per-side margin: % of detected ink width and height; independent of source resolution</small></label>
+        <label class="range-field"><span><strong>Crop padding</strong><output id="padding-output">2%</output></span><input id="padding" type="range" min="0" max="12" step="0.5" value="2"><small>Equal padding on all sides: % of shorter ink dimension (vmin-style), independent of source resolution</small></label>
         <label class="range-field"><span><strong>Rotation correction</strong><output id="rotation-output">0°</output></span><input id="rotation" type="range" min="-20" max="20" step="1" value="0"><small>Optional manual correction after extraction</small></label>
       </div>
       <div class="settings-foot"><label class="checkbox-field"><input id="hard-edges" type="checkbox"><span>Strict black/transparent pixels</span></label><span>Default output preserves smooth semi-transparent edges.</span></div>
