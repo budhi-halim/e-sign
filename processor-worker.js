@@ -127,12 +127,13 @@ function processSignature(w, h, rgba, settings) {
     inkCount++;
   }
   if (xmax < xmin || inkCount < 10) throw new Error('The algorithm could not isolate enough signature ink. Increase sensitivity or try another image.');
-  // Padding is a percentage of the detected ink bounding-box dimensions.
-  // Output margins may extend past the original source image boundaries.
+  // Use the shorter detected ink dimension (vmin-style) for an equal margin
+  // on all four sides. Margins can extend beyond the source image boundaries.
   const margin = clamp(Number(settings.padding ?? 2),0,12) / 100;
   const inkW = xmax - xmin + 1, inkH = ymax - ymin + 1;
-  const px = Math.ceil(inkW * margin), py = Math.ceil(inkH * margin);
-  const ow = inkW + px * 2, oh = inkH + py * 2;
+  const pad = Math.ceil(Math.min(inkW, inkH) * margin);
+  const px = pad, py = pad;
+  const ow = inkW + pad * 2, oh = inkH + pad * 2;
   const result = new Uint8ClampedArray(ow * oh * 4);
   for (let y = 0; y < inkH; y++) {
     const sy = ymin + y;
