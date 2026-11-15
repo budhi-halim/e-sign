@@ -175,8 +175,79 @@ const isImageFile=file=>file&&(file.type.toLowerCase().startsWith('image/')||(!f
 async function uploadFiles(files,{fromClipboard=false}={}){const input=Array.from(files);if(input.length>20)toast('Only the first 20 files will be processed.');for(const file of input.slice(0,20)){if(file.size>25*1024*1024){toast(`${file.name}: exceeds 25 MB`);continue;}const type=extOf(file.name);if(!FILE_TYPES.includes(type)){toast(`${file.name}: unsupported format`);continue;}const card=makeCard({title:file.name,description:`${fromClipboard?'Clipboard image':'Local file'} · ${bytes(file.size)}`,number:String(cards.filter(c=>c.custom).length+1).padStart(2,'0'),custom:true,filename:file.name});cards.push(card);$('#custom-items').prepend(card.el);if(fromClipboard)card.el.scrollIntoView({block:'start',behavior:'instant'});await decodeCard(card,file);}}
 function clipboardImage(blob){const extension=IMAGE_MIME_EXT[blob.type.toLowerCase()]||(blob.name&&FILE_TYPES.includes(extOf(blob.name))&&extOf(blob.name)!=='pdf'?extOf(blob.name):null);if(!extension){toast('The clipboard image format is unsupported. Save it as PNG or JPEG and try again.');return;}const file=new File([blob],`clipboard-image.${extension}`,{type:blob.type});void uploadFiles([file],{fromClipboard:true});}
 function rejectMultiple(){toast('Multiple images found. Paste only one signature image at a time.');}
-function handlePaste(event){if(event.target instanceof Element&&event.target.closest('textarea,input:not([type="range"]):not([type="file"]),[contenteditable="true"]'))return;event.preventDefault();const transfer=event.clipboardData;if(!transfer){toast('Clipboard is unavailable. Browse for an image instead.');return;}const imageItems=Array.from(transfer.items||[]).filter(item=>item.kind==='file'&&item.type.toLowerCase().startsWith('image/'));const imageFiles=Array.from(transfer.files||[]).filter(isImageFile);if(imageItems.length>1||imageFiles.length>1){rejectMultiple();return;}const image=imageItems[0]?.getAsFile()||imageFiles[0];if(!image){toast('No image found in the clipboard. Copy an image, not text or a link.');return;}clipboardImage(image);}
-async function readClipboard(){try{if(!navigator.clipboard?.read)throw new Error('Clipboard API unavailable');const entries=await navigator.clipboard.read();const images=entries.map(item=>({item,types:item.types.filter(type=>type.toLowerCase().startsWith('image/'))})).filter(entry=>entry.types.length);if(images.length>1){rejectMultiple();return;}if(!images.length){toast('No image found in the clipboard. Copy an image, not text or a link.');return;}const {item,types}=images[0];const type=types.find(t=>t==='image/png')||types.find(t=>IMAGE_MIME_EXT[t])||types[0];clipboardImage(await item.getType(type));}catch{toast('Clipboard access unavailable. Use Ctrl+V / Cmd+V to paste an image.');$('#dropzone').focus();}}
+const MAX_IMAGE_BYTES=25*1024*1024,MAX_RICH_CHARS=60*1024*1024;
+const RTF_TYPES=['text/rtf','application/rtf','text/richtext'];
+function richImageSources(html){
+  if(!html)return [];
+  // A template is inert; never attach it to the document or load linked resources.
+  const template=document.createElement('template');template.innerHTML=html;
+  return Array.from(template.content.querySelectorAll('img'),img=>img.getAttribute('src')||'');
+}
+function embeddedImage(src){
+  const match=/^data:(image\/[\w.+-]+)(?:;[^,;]+)*;base64,([\s\S]*)$/i.exec(src.trim());
+  if(!match)return null;
+  const mime=match[1].toLowerCase();if(!IMAGE_MIME_EXT[mime])return null;
+  try{const data=match[2].replace(/\s/g,'');if(data.length>Math.ceil(MAX_IMAGE_BYTES/3)*4)return null;const binary=atob(data);if(!binary.length||binary.length>MAX_IMAGE_BYTES)return null;return new Blob([Uint8Array.from(binary,c=>c.charCodeAt(0))],{type:mime});}catch{return null;}
+}
+// Read only RTF picture destinations; do not render RTF, interpret document text,
+// or read Office's file:// temporary image references. Word may include a primary
+// shppict and an immediately following nonshppict fallback for the same picture.
+function rtfPictures(rtf){
+  if(!rtf||!/^\s*\{\\rtf\d/i.test(rtf))return [];
+  const stack=[],found=[];const word=/\\([a-z]+)(-?\d+)? ?/iy,plain=/[^{}\\]+/y;
+  for(let i=0;i<rtf.length;){
+    const c=rtf[i],g=stack[stack.length-1];
+    if(c==='{'){if(stack.length>=256)throw new Error('Clipboard document is too deeply nested.');stack.push({parent:g,ordinal:g?++g.children:0,children:0,branch:g?.branch||null,picture:null,started:false,start:i});i++;continue;}
+    if(c==='}'){if(g){stack.pop();if(g.picture)found.push(g.picture);if(g.branch?.start===g.start)g.branch.end=i+1;}i++;continue;}
+    if(c==='\\'){
+      word.lastIndex=i;const m=word.exec(rtf);
+      if(!m){i+=rtf[i+1]==="'"?4:2;continue;}
+      i=word.lastIndex;const cmd=m[1].toLowerCase(),first=g&&!g.started;if(g)g.started=true;
+      if(first&&(cmd==='shppict'||cmd==='nonshppict')){g.branch={kind:cmd,parent:g.parent,ordinal:g.ordinal,start:g.start,end:null};}
+      else if(first&&cmd==='pict'){g.picture={branch:g.branch,mime:null,hex:[],binary:[],size:0,invalid:false};}
+      else if(cmd==='bin'){
+        const n=Number(m[2]);if(!Number.isSafeInteger(n)||n<0||i+n>rtf.length)throw new Error('Invalid rich-text clipboard image.');
+        if(g?.picture){const p=g.picture;p.size+=n*2;if(p.size>MAX_IMAGE_BYTES*2)p.invalid=true;else p.binary.push(rtf.slice(i,i+n));}i+=n;
+      }else if(g?.picture){if(cmd==='pngblip')g.picture.mime='image/png';else if(cmd==='jpegblip')g.picture.mime='image/jpeg';}
+      continue;
+    }
+    plain.lastIndex=i;const part=plain.exec(rtf);if(!part){i++;continue;}i=plain.lastIndex;
+    if(g&&/\S/.test(part[0]))g.started=true;
+    if(g?.picture){const p=g.picture,hex=part[0].replace(/\s/g,'');p.size+=hex.length;if(p.size>MAX_IMAGE_BYTES*2||/[^a-f\d]/i.test(hex))p.invalid=true;else p.hex.push(hex);}
+  }
+  const logical=[];
+  for(const p of found){const last=logical[logical.length-1],a=last?.[0].branch,b=p.branch;
+    if(a?.kind==='shppict'&&b?.kind==='nonshppict'&&a.parent===b.parent&&a.ordinal+1===b.ordinal&&last.length===1&&a.end!==null&&/^\s*$/.test(rtf.slice(a.end,b.start)))last.push(p);else logical.push([p]);}
+  return logical;
+}
+function rtfImage(pictures){
+  for(const p of pictures||[]){if(!p.mime||p.invalid||!p.size)continue;
+    let bytes;if(p.binary.length){if(p.hex.some(Boolean))continue;const data=p.binary.join('');if(/[^\x00-\xff]/.test(data))continue;bytes=Uint8Array.from(data,c=>c.charCodeAt(0));}
+    else{const hex=p.hex.join('');if(hex.length%2)continue;bytes=new Uint8Array(hex.length/2);for(let i=0;i<bytes.length;i++)bytes[i]=parseInt(hex.slice(i*2,i*2+2),16);}
+    if(p.mime==='image/png'&&!(bytes.length>=8&&[137,80,78,71,13,10,26,10].every((v,i)=>bytes[i]===v)))continue;
+    if(p.mime==='image/jpeg'&&!(bytes[0]===255&&bytes[1]===216))continue;
+    return new Blob([bytes],{type:p.mime});
+  }return null;
+}
+async function resolveClipboard({image=null,html='',rtf=''}){
+  if(html.length>MAX_RICH_CHARS||rtf.length>MAX_RICH_CHARS){toast('Clipboard content is too large. Copy only the signature image.');return;}
+  try{
+    const sources=richImageSources(html),pictures=rtfPictures(rtf);
+    if(sources.length>1||pictures.length>1){rejectMultiple();return;}
+    // Rich Office selections may also offer a flattened bitmap of the entire selection.
+    // Prefer the embedded picture, which excludes accompanying text.
+    let extracted=embeddedImage(sources[0]||'')||rtfImage(pictures[0]);
+    if(!extracted&&sources[0]?.startsWith('blob:')){
+      // Safari can expose clipboard-local blob URLs. No HTTP/file URL is fetched.
+      try{const url=new URL(sources[0]);if(url.protocol==='blob:'&&url.origin===location.origin){const response=await fetch(url.href);const blob=await response.blob();if(IMAGE_MIME_EXT[blob.type]&&blob.size<=MAX_IMAGE_BYTES)extracted=blob;}}catch{}
+    }
+    if(extracted||image){clipboardImage(extracted||image);return;}
+    if(sources.length||pictures.length){toast('An image was found, but the browser did not provide usable image data. In Word, select and copy only the picture, then paste again.');return;}
+    toast('No image found in the clipboard. Copy an image, not text or a link.');
+  }catch{toast('Could not read the rich-text clipboard. Copy only the picture and try again.');}
+}
+function handlePaste(event){if(event.target instanceof Element&&event.target.closest('textarea,input:not([type="range"]):not([type="file"]),[contenteditable="true"]'))return;event.preventDefault();const transfer=event.clipboardData;if(!transfer){toast('Clipboard is unavailable. Browse for an image instead.');return;}const imageItems=Array.from(transfer.items||[]).filter(item=>item.kind==='file'&&item.type.toLowerCase().startsWith('image/'));const imageFiles=Array.from(transfer.files||[]).filter(isImageFile);if(imageItems.length>1||imageFiles.length>1){rejectMultiple();return;}const get=type=>transfer.getData?.(type)||'';void resolveClipboard({image:imageItems[0]?.getAsFile()||imageFiles[0],html:get('text/html'),rtf:RTF_TYPES.map(get).find(Boolean)||''});}
+async function readClipboard(){try{if(!navigator.clipboard?.read)throw new Error('Clipboard API unavailable');const entries=await navigator.clipboard.read();const images=entries.map(item=>({item,types:item.types.filter(type=>type.toLowerCase().startsWith('image/'))})).filter(entry=>entry.types.length);if(images.length>1){rejectMultiple();return;}const {item,types}=images[0]||{};const type=types?.find(t=>t==='image/png')||types?.find(t=>IMAGE_MIME_EXT[t])||types?.[0];const image=type?await item.getType(type):null;const getRich=async formats=>{const rich=[];for(const entry of entries){const type=formats.find(t=>entry.types.includes(t));if(type)rich.push(await (await entry.getType(type)).text());}return rich.join('\n');};const [html,rtf]=await Promise.all([getRich(['text/html']),getRich(RTF_TYPES)]);await resolveClipboard({image,html,rtf});}catch{toast('Clipboard access unavailable. Use Ctrl+V / Cmd+V to paste an image.');$('#dropzone').focus();}}
 function initEvents(){
 document.addEventListener('paste',handlePaste);$('#paste-image').addEventListener('click',readClipboard);window.addEventListener('storage',e=>{if(e.key===STORAGE_KEY||e.key===null)cards.filter(c=>c.storageKey).forEach(updateRememberNote);});
 $('#rerun').addEventListener('click',()=>{cards.forEach(card=>requestProcess(card,true,true));toast('Reprocessing loaded signatures.');});

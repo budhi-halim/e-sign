@@ -43,17 +43,39 @@ def run():
             assert page.locator('#samples .adjust-panel:visible').count() == 4
             assert page.locator('[data-field="padding"], [data-field="hardEdges"]').count() == 0
             print('PASS: four reference sources, fixed padding and smooth edges')
-            # Use real PNG data and mixed clipboard items, not image URLs or HTML.
+            # Use real PNG data and mixed clipboard items, plus Word-style rich data.
+            external_requests = []
+            page.on('request', lambda request: external_requests.append(request.url) if 'invalid.test' in request.url else None)
             page.evaluate("""async()=>{window.clipBlob=await (await fetch('assets/administrator-transparent.png')).blob();
               window.paste=(count,text=true)=>{const d=new DataTransfer();
-                if(text){d.setData('text/plain','ignored');d.setData('text/html','<img src=\"https://invalid.test/never-fetch.png\">');}
+                if(text){d.setData('text/plain','ignored');d.setData('text/html','<p>ignored</p>');}
                 for(let i=0;i<count;i++)d.items.add(new File([clipBlob],`paste-${i}.png`,{type:'image/png'}));
-                document.body.dispatchEvent(new ClipboardEvent('paste',{clipboardData:d,bubbles:true,cancelable:true}));};}""")
+                document.body.dispatchEvent(new ClipboardEvent('paste',{clipboardData:d,bubbles:true,cancelable:true}));};
+              const bytes=new Uint8Array(await clipBlob.arrayBuffer());const hex=Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
+              window.officeHtml='<p>Text <img src="file:///C:/Temp/clip_image001.png"> more text</p>';
+              const pict=String.raw`{\\pict\\pngblip `+hex+'}';
+              window.officeRtf=String.raw`{\\rtf1\\ansi before {\\*\\shppict`+pict+String.raw`}{\\nonshppict{\\pict\\wmetafile8 01020304}} after}`;
+              window.twoRtf=String.raw`{\\rtf1\\ansi `+pict+pict+'}';
+              window.embeddedHtml='<p>Text<img src="data:image/png;base64,'+btoa(Array.from(bytes,b=>String.fromCharCode(b)).join(''))+'"></p>';
+              window.pasteRich=(html,rtf='')=>{const d=new DataTransfer();d.setData('text/html',html);d.setData('text/plain','ignored text');if(rtf)d.setData('text/rtf',rtf);document.body.dispatchEvent(new ClipboardEvent('paste',{clipboardData:d,bubbles:true,cancelable:true}));};}""")
             page.evaluate('paste(2)')
             expect(page.locator('#toast')).to_contain_text('Multiple images found')
             expect(page.locator('#custom-items .signature-card')).to_have_count(0)
             page.evaluate('paste(0)')
             expect(page.locator('#toast')).to_contain_text('No image found')
+            page.evaluate('pasteRich(officeHtml, twoRtf)')
+            expect(page.locator('#toast')).to_contain_text('Multiple images found')
+            expect(page.locator('#custom-items .signature-card')).to_have_count(0)
+            page.evaluate('pasteRich(\'<img src="https://invalid.test/never-fetch.png">\')')
+            expect(page.locator('#toast')).to_contain_text('did not provide usable image data')
+            expect(page.locator('#custom-items .signature-card')).to_have_count(0)
+            for expression in ('pasteRich(officeHtml, officeRtf)', 'pasteRich(embeddedHtml)'):
+                page.evaluate(expression)
+                rich_card = page.locator('#custom-items .signature-card').first
+                expect(rich_card.locator('.card-status')).to_have_text('Ready', timeout=30000)
+                rich_card.locator('.remove').click()
+            assert not external_requests, external_requests
+            print('PASS: Word rich-text extraction, embedded HTML image, multiple rejection and no linked-image fetch')
             page.evaluate('paste(1)')
             custom = page.locator('#custom-items .signature-card').first
             expect(custom.locator('.card-status')).to_have_text('Ready', timeout=30000)
