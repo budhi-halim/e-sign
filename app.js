@@ -81,7 +81,7 @@ async function decodeCard(card,blob,page=1){
     await processCard(card);
   }catch(e){if(rev===card.revision&&!card.removed)showError(card,e);}
 }
-/** After rotation, trim transparent corners and apply the same percent-based margin. */
+/** After rotation, trim transparent corners and apply equal padding on every side, based on the shorter ink dimension. */
 function trimRotatedSignature(canvas, percent) {
   const w=canvas.width,h=canvas.height;
   const ctx=canvas.getContext('2d',{willReadFrequently:true});
@@ -94,10 +94,9 @@ function trimRotatedSignature(canvas, percent) {
   }
   if(xmax<0)return canvas;
   const fraction=Math.max(0,Math.min(12,Number(percent)||0))/100;
-  const px=Math.ceil((xmax-xmin+1)*fraction);
-  const py=Math.ceil((ymax-ymin+1)*fraction);
-  const result=canvasFromDimensions(xmax-xmin+1+px*2,ymax-ymin+1+py*2);
-  result.getContext('2d').drawImage(canvas,px-xmin,py-ymin);
+  const pad=Math.ceil(Math.min(xmax-xmin+1,ymax-ymin+1)*fraction);
+  const result=canvasFromDimensions(xmax-xmin+1+pad*2,ymax-ymin+1+pad*2);
+  result.getContext('2d').drawImage(canvas,pad-xmin,pad-ymin);
   return result;
 }
 async function processCard(card){
