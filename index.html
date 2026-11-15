@@ -21,26 +21,16 @@
       <div class="privacy-note"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg><div><strong>Files stay in this browser</strong><span>Results are generated locally; downloads are saved directly to your device.</span></div></div>
     </section>
 
-    <section class="settings-panel" aria-label="Image processing settings">
-      <div class="settings-head"><div><h2>Processing settings</h2><p>Changes reprocess every loaded image.</p></div><button type="button" class="button button-quiet" id="reset-settings">Reset defaults</button></div>
-      <div class="settings-grid">
-        <label class="range-field"><span><strong>Ink sensitivity</strong><output id="sensitivity-output">52</output></span><input id="sensitivity" type="range" min="0" max="100" value="52"><small>Higher captures lighter and finer strokes</small></label>
-        <label class="range-field"><span><strong>Noise removal</strong><output id="denoise-output">45</output></span><input id="denoise" type="range" min="0" max="100" value="45"><small>Higher removes more isolated dust</small></label>
-        <label class="range-field"><span><strong>Crop padding</strong><output id="padding-output">2%</output></span><input id="padding" type="range" min="0" max="12" step="0.5" value="2"><small>Equal padding on all sides: % of shorter ink dimension (vmin-style), independent of source resolution</small></label>
-        <label class="range-field"><span><strong>Rotation correction</strong><output id="rotation-output">0°</output></span><input id="rotation" type="range" min="-20" max="20" step="1" value="0"><small>Optional manual correction after extraction</small></label>
-      </div>
-      <div class="settings-foot"><label class="checkbox-field"><input id="hard-edges" type="checkbox"><span>Strict black/transparent pixels</span></label><span>Default output preserves smooth semi-transparent edges.</span></div>
+    <section class="upload-section" aria-labelledby="uploads-title">
+      <div class="section-heading"><div><div class="eyebrow">YOUR FILES</div><h2 id="uploads-title">Test your own signature</h2><p>Start with automatic extraction, then adjust each result independently.</p></div><div class="heading-actions"><button type="button" class="button button-outline" id="paste-image"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="14" height="16" rx="2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="m8 16 3-3 3 3 2-2 1 1"/></svg>Paste image</button></div></div>
+      <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Select signature files to process"><div class="drop-icon"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6"><path d="M12 16V4m0 0L7 9m5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg></div><strong>Drop files here or browse files</strong><span>PNG · JPG · SVG · PDF · HEIC/HEIF · GIF · BMP · TIFF · WebP · AVIF</span><small>Multiple files supported · 25 MB per file · Nothing is uploaded</small><input id="file-input" type="file" multiple accept="image/png,image/jpeg,image/svg+xml,application/pdf,image/heic,image/heif,image/tiff,image/gif,image/bmp,image/webp,image/avif,.png,.jpg,.jpeg,.svg,.pdf,.heic,.heif,.tif,.tiff,.gif,.bmp,.webp,.avif" hidden></div>
+      <div class="sample-grid custom-grid" id="custom-items"></div>
+      <p class="paste-help"><kbd>Ctrl</kbd> + <kbd>V</kbd> or <kbd>Cmd</kbd> + <kbd>V</kbd> anywhere on the page. Paste one image at a time; accompanying text is ignored.</p>
     </section>
 
     <section class="sample-section" aria-labelledby="sample-title">
       <div class="section-heading"><div><div class="eyebrow">REFERENCE SET</div><h2 id="sample-title">Administrator · Four source conditions</h2><p>The same signature is processed across four increasingly difficult inputs.</p></div><div class="heading-actions"><button type="button" class="button button-outline" id="rerun">Reprocess all</button><button type="button" class="button button-primary" id="download-all">Download all PNGs</button></div></div>
       <div class="sample-grid" id="samples"><p class="loading-hint">Preparing reference samples…</p></div>
-    </section>
-
-    <section class="upload-section" aria-labelledby="uploads-title">
-      <div class="section-heading"><div><div class="eyebrow">ADDITIONAL TESTS</div><h2 id="uploads-title">Test your own signature</h2><p>Drop in multiple images or documents. Uploaded items use the exact same algorithm as the reference samples.</p></div></div>
-      <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Select signature files to process"><div class="drop-icon"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6"><path d="M12 16V4m0 0L7 9m5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg></div><strong>Drop files here or browse files</strong><span>PNG · JPG · SVG · PDF · HEIC/HEIF · GIF · BMP · TIFF · WebP · AVIF</span><small>Multiple files supported · 25 MB per file · Nothing is uploaded</small><input id="file-input" type="file" multiple accept="image/png,image/jpeg,image/svg+xml,application/pdf,image/heic,image/heif,image/tiff,image/gif,image/bmp,image/webp,image/avif,.png,.jpg,.jpeg,.svg,.pdf,.heic,.heif,.tif,.tiff,.gif,.bmp,.webp,.avif" hidden></div>
-      <div class="sample-grid custom-grid" id="custom-items"></div>
     </section>
 
     <section class="technical-note"><h2>About this experiment</h2><p>The output is always a black-ink transparent PNG. Existing transparent artwork is preserved; paper photographs use local contrast, connected-component filtering, and automatic cropping. PDF pages and HEIC/TIFF images are decoded in the browser. A complex photograph may still require sensitivity adjustment or manual framing. This is an algorithm test bench, not a document-signing or identity-verification service.</p><p><strong>Format libraries:</strong> PDF.js (PDF), heic-to (HEIC/HEIF), UTIF + pako (TIFF). GitHub Pages serves local copies of the decoders; a pinned CDN is a fallback for source-only local testing. Signature file content is never intentionally uploaded. Production integration should remove the CDN fallback and enforce a strict Content Security Policy.</p></section>
@@ -49,3 +39,4 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </body>
 </html>
+

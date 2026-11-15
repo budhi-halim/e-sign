@@ -26,10 +26,13 @@ function processSignature(w, h, rgba, settings) {
   let score;
   let core = new Uint8Array(N);
   if (transparentSource) {
+    // Keep the original 45-alpha threshold at the default sensitivity (52).
+    // Higher sensitivity also admits fainter marks in transparent source artwork.
+    const alphaThreshold = clamp(45 - (Number(settings.sensitivity ?? 52) - 52) * 0.8, 5, 255);
     for (let i = 0, j = 0; i < N; i++, j += 4) {
       // The alpha channel is authoritative: don't mistake a transparent black background for ink.
       alpha[i] = input[j + 3];
-      if (alpha[i] >= 45) core[i] = 1;
+      if (alpha[i] >= alphaThreshold) core[i] = 1;
     }
   } else {
     score = new Int16Array(N);
@@ -154,3 +157,4 @@ self.onmessage = function(event) {
     self.postMessage({jobId,ok:false,error:error?.message || String(error)});
   }
 };
+

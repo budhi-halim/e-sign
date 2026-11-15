@@ -6,10 +6,12 @@ Static web application for evaluating handwritten signature image cleanup before
 
 - Four included "Administrator" signature source images: transparent PNG, black-on-white JPG, scanned paper JPG, and angled paper photograph JPG.
 - Show original and processed signature side by side for all four sources.
-- Upload several additional files and process them identically.
+- Upload several additional files, or paste one image from the clipboard (Ctrl+V / Cmd+V or Paste image). Text/HTML is ignored; multiple image items are rejected without choosing one automatically. An image that the OS/browser exposes as one flattened bitmap counts as one item. Clipboard access can depend on browser permissions; pasted HTML links are never fetched.
 - Automatic black-on-transparent PNG extraction using local contrast normalization, shadow/background suppression, connected-component noise filtering, crop-to-ink, and optional rotation.
 - Preserve existing transparency for transparent source artwork.
-- Four controls: ink sensitivity, noise removal, proportional crop padding, rotation correction; optional hard-edged black/transparent output.
+- Independent per-image sliders and ±1 buttons for ink sensitivity (52), noise removal (45), and rotation (0°). Adjustments affect only that image; controls appear after the first extraction attempt, including on extraction failure. Crop padding remains fixed at 2% of the shorter ink dimension and smooth semi-transparent edges are retained.
+- Slider values update immediately, processing is debounced by 100 ms during dragging, and release/change or step buttons request the latest value immediately. A single global worker pipeline keeps at most one pending request per card; newer values supersede obsolete jobs and stale results are discarded. The previous preview stays visible during processing, but it cannot be exported as the new result until processing succeeds.
+- Accepted adjustments are remembered locally on Download PNG or Remember settings (and for completed items in Download all PNGs). Only the SHA-256 fingerprint of the original file bytes, page/frame number, and the three numeric settings are stored in localStorage (`e-sign:settings:v1`). A new acceptance replaces the previous config for the same exact file/page; accepting defaults removes the override. An identical renamed file matches, a changed file with the same name does not. Clipboard re-encoding can change the fingerprint. No image, filename, or output is persisted by the app. Local storage is per browser/origin and may be cleared or disabled.
 - Individual transparent PNG downloads, plus bulk ZIP download.
 - Input support: PNG, JPEG, SVG, PDF, HEIC/HEIF, GIF, BMP, TIFF, WebP, AVIF. Native decoder support may vary by browser; PDF, HEIC and TIFF use browser-side format libraries.
 - PDF page selection and TIFF frame selection.
@@ -45,7 +47,7 @@ Open `http://127.0.0.1:8769/`. Python is needed only for this optional local sta
 
 `processor-worker.js` is the independently reusable image extraction engine. It accepts RGBA pixels and settings and returns cropped RGBA pixels, where RGB is always black and alpha represents ink strength.
 
-1. For genuinely transparent sources, derive ink from the source alpha channel rather than luminosity.
+1. For genuinely transparent sources, derive ink from the source alpha channel rather than luminosity. Ink sensitivity adjusts the minimum alpha of the connected-component core (45 at default sensitivity), while retaining the original alpha of accepted pixels.
 2. For opaque sources, calculate grayscale luminance and a local mean from a summed-area table. Local contrast removes paper shadows better than global thresholding.
 3. Find dark-ink connected components, discard isolated dust and edge-touching regions, and retain important strokes and detached dots.
 4. Expand each retained region by one pixel to preserve anti-aliasing, then crop tightly with equal padding on all four sides (default **2% of the shorter detected ink dimension**, vmin-style). There is no arbitrary minimum pixel padding; if strokes reach the source edge, transparent padding is generated outside the source rather than clamped. After optional rotation, crop again to avoid large transparent corners.
@@ -65,7 +67,7 @@ The GitHub Pages deployment workflow installs these exact versions and copies th
 
 ## Tests
 
-In the source folder, the Node test `scripts/test-worker.cjs` runs the worker algorithm on the four reference samples. The no-dependency `scripts/test-padding.cjs` verifies resolution-independent margin percentages, including when the detected ink reaches close to the source border. The browser test `scripts/test-browser.py` verifies the interface, before/after images, custom upload, sliders and downloadable ZIP. These were executed during initial development; PDF/HEIC/TIFF library loading was not tested in the headless offline environment.
+In the source folder, the Node test `scripts/test-worker.cjs` runs the worker algorithm on the four reference samples (requires `sharp`). The no-dependency `scripts/test-padding.cjs` verifies resolution-independent margin percentages, including when the detected ink reaches close to the source border. `node scripts/test-controls.cjs` checks the queue/debounce, settings storage, and clipboard filtering without a browser; it runs in the Pages workflow. `python scripts/test-browser.py` performs browser acceptance with Python Playwright and Chromium (set `CHROMIUM_PATH` if needed): four reference samples, clipboard paste, per-card adjustments, queue coalescing, fingerprint recall, PNG/ZIP, and responsive widths. PDF/HEIC/TIFF decoder loading is not covered by these tests.
 
 ## ERP integration
 
@@ -74,3 +76,4 @@ The preprocessing algorithm is independent of ERP user roles, approvals and sign
 ## Privacy and build processing
 
 All four built-in reference images are downloaded as ordinary static files, then processed in the same browser Web Worker as uploaded images. User-selected files are decoded and processed inside the browser; GitHub Actions performs only code validation and bundles decoder scripts for static hosting. No GitHub Actions preprocessing and no image upload API are involved. For PDF/HEIC/TIFF, scripts are served from the GitHub Pages origin; a pinned CDN fallback exists only for incomplete local installations.
+

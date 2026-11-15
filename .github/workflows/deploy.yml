@@ -36,6 +36,7 @@ jobs:
           node --check app.js
           node --check processor-worker.js
           node scripts/test-padding.cjs
+          node scripts/test-controls.cjs
       - name: Build static site
         run: |
           mkdir -p _site/assets _site/vendor/licenses
@@ -64,3 +65,4 @@ jobs:
       - name: Deploy Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
