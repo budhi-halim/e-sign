@@ -46,7 +46,8 @@ async function loadDocument(blob,name,type,page=1){
     const image=await loadImage(converted);return {canvas:paintScaled(image,image.naturalWidth,image.naturalHeight),pageCount:1,format:'HEIC/HEIF'};
   }
   if(['tif','tiff'].includes(ext)||mime==='image/tiff'){
-    await preferLocalDecoder('./vendor/UTIF.min.js','https://cdn.jsdelivr.net/npm/utif@3.1.0/UTIF.min.js',()=>Boolean(globalThis.UTIF));
+    await preferLocalDecoder('./vendor/pako.min.js','https://cdn.jsdelivr.net/npm/pako@1.0.11/dist/pako.min.js',()=>Boolean(globalThis.pako));
+    await preferLocalDecoder('./vendor/UTIF.js','https://cdn.jsdelivr.net/npm/utif@3.1.0/UTIF.js',()=>Boolean(globalThis.UTIF));
     const buffer=await blob.arrayBuffer();const ifds=globalThis.UTIF.decode(buffer);if(!ifds.length)throw new Error('TIFF has no image frames.');const n=Math.min(Math.max(page,1),ifds.length);const frame=ifds[n-1];globalThis.UTIF.decodeImage(buffer,frame);const rgba=globalThis.UTIF.toRGBA8(frame);
     if(frame.width*frame.height>16000000)throw new Error('TIFF dimensions exceed the limit.');
     const c=canvasFromDimensions(frame.width,frame.height);c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(rgba),frame.width,frame.height),0,0);return {canvas:paintScaled(c,c.width,c.height),pageCount:ifds.length,format:'TIFF'};
@@ -80,6 +81,25 @@ async function decodeCard(card,blob,page=1){
     await processCard(card);
   }catch(e){if(rev===card.revision&&!card.removed)showError(card,e);}
 }
+/** After rotation, trim transparent corners and apply the same percent-based margin. */
+function trimRotatedSignature(canvas, percent) {
+  const w=canvas.width,h=canvas.height;
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});
+  const pixels=ctx.getImageData(0,0,w,h).data;
+  let xmin=w,ymin=h,xmax=-1,ymax=-1;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    if(pixels[(y*w+x)*4+3]<12)continue;
+    xmin=Math.min(xmin,x);xmax=Math.max(xmax,x);
+    ymin=Math.min(ymin,y);ymax=Math.max(ymax,y);
+  }
+  if(xmax<0)return canvas;
+  const fraction=Math.max(0,Math.min(12,Number(percent)||0))/100;
+  const px=Math.ceil((xmax-xmin+1)*fraction);
+  const py=Math.ceil((ymax-ymin+1)*fraction);
+  const result=canvasFromDimensions(xmax-xmin+1+px*2,ymax-ymin+1+py*2);
+  result.getContext('2d').drawImage(canvas,px-xmin,py-ymin);
+  return result;
+}
 async function processCard(card){
   if(!card.sourceCanvas||card.removed)return;
   const rev=++card.revision;setStatus(card,'working','Processing');$('.card-error',card.el).hidden=true;$('.download',card.el).disabled=true;
@@ -90,7 +110,7 @@ async function processCard(card){
     const res=await promise;if(rev!==card.revision||card.removed)return;
     let out=canvasFromDimensions(res.width,res.height);out.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(res.pixels),res.width,res.height),0,0);
     const degrees=+$('#rotation').value;
-    if(degrees){const rad=degrees*Math.PI/180;const co=Math.abs(Math.cos(rad)),si=Math.abs(Math.sin(rad));const W=Math.ceil(out.width*co+out.height*si),H=Math.ceil(out.width*si+out.height*co);const dest=canvasFromDimensions(W,H);const dc=dest.getContext('2d');dc.translate(W/2,H/2);dc.rotate(rad);dc.drawImage(out,-out.width/2,-out.height/2);out=dest;}
+    if(degrees){const rad=degrees*Math.PI/180;const co=Math.abs(Math.cos(rad)),si=Math.abs(Math.sin(rad));const W=Math.ceil(out.width*co+out.height*si),H=Math.ceil(out.width*si+out.height*co);const dest=canvasFromDimensions(W,H);const dc=dest.getContext('2d');dc.translate(W/2,H/2);dc.rotate(rad);dc.drawImage(out,-out.width/2,-out.height/2);out=trimRotatedSignature(dest,+$('#padding').value);}
     const blob=await canvasToBlob(out);if(rev!==card.revision||card.removed)return;
     if(card.outputUrl)URL.revokeObjectURL(card.outputUrl);
     card.outputBlob=blob;card.outputUrl=URL.createObjectURL(blob);
@@ -110,7 +130,7 @@ const cdStart=offset;for(const e of entries){const b=section(46+e.nameBytes.leng
 section(22,v=>{v.setUint32(0,0x06054b50,true);v.setUint16(8,entries.length,true);v.setUint16(10,entries.length,true);v.setUint32(12,offset-cdStart,true);v.setUint32(16,cdStart,true);});return new Blob(chunks,{type:'application/zip'});}
 async function uploadFiles(files){const input=Array.from(files).slice(0,20);for(const file of input){if(file.size>25*1024*1024){toast(`${file.name}: exceeds 25 MB`);continue;}const type=extOf(file.name);if(!['png','jpg','jpeg','svg','pdf','heic','heif','tif','tiff','gif','bmp','webp','avif','ico'].includes(type)){toast(`${file.name}: unsupported format`);continue;}const card=makeCard({title:file.name,description:`Your local file · ${bytes(file.size)}`,number:String(cards.filter(c=>c.custom).length+1).padStart(2,'0'),custom:true,filename:file.name});cards.push(card);$('#custom-items').prepend(card.el);await decodeCard(card,file);}}
 function initEvents(){const settings=['sensitivity','denoise','padding','rotation','hard-edges'];let timer;for(const id of settings){$('#'+id).addEventListener('input',()=>{updateOutputs();clearTimeout(timer);timer=setTimeout(()=>Promise.all(cards.map(processCard)),380);});}
-$('#reset-settings').addEventListener('click',()=>{for(const [id,val] of Object.entries({sensitivity:52,denoise:45,padding:6,rotation:0}))$('#'+id).value=val;$('#hard-edges').checked=false;updateOutputs();Promise.all(cards.map(processCard));});
+$('#reset-settings').addEventListener('click',()=>{for(const [id,val] of Object.entries({sensitivity:52,denoise:45,padding:2,rotation:0}))$('#'+id).value=val;$('#hard-edges').checked=false;updateOutputs();Promise.all(cards.map(processCard));});
 $('#rerun').addEventListener('click',()=>{Promise.all(cards.map(processCard));toast('Reprocessing loaded signatures.');});
 $('#download-all').addEventListener('click',async()=>{const items=cards.filter(c=>c.outputBlob).map((c,i)=>({name:`${String(i+1).padStart(2,'0')}-${safeFileName(c.filename)}-transparent.png`,blob:c.outputBlob}));if(!items.length){toast('No completed images to download yet.');return;}try{saveBlob(await makeZip(items),'e-sign-processed-signatures.zip');toast(`Prepared ${items.length} PNG files.`);}catch(e){toast(`ZIP export failed: ${e.message}`);}});
 const zone=$('#dropzone'),fileInput=$('#file-input');const browse=()=>fileInput.click();zone.addEventListener('click',browse);zone.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();browse();}});fileInput.addEventListener('change',()=>{uploadFiles(fileInput.files);fileInput.value='';});for(const ev of ['dragenter','dragover'])zone.addEventListener(ev,e=>{e.preventDefault();zone.classList.add('dragging')});for(const ev of ['dragleave','dragend','drop'])zone.addEventListener(ev,e=>{e.preventDefault();zone.classList.remove('dragging')});zone.addEventListener('drop',e=>uploadFiles(e.dataTransfer.files));
