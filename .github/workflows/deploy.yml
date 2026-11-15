@@ -25,11 +25,28 @@ jobs:
         uses: actions/checkout@v6
       - name: Configure Pages
         uses: actions/configure-pages@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser decoders (build-time only)
+        run: npm install --no-save --no-package-lock --ignore-scripts pdfjs-dist@3.11.174 heic-to@1.6.7 utif@3.1.0
+      - name: Validate application scripts
+        run: |
+          node --check app.js
+          node --check processor-worker.js
       - name: Build static site
         run: |
-          mkdir -p _site/assets
+          mkdir -p _site/assets _site/vendor/licenses
           cp index.html styles.css app.js processor-worker.js _site/
           cp assets/* _site/assets/
+          cp node_modules/pdfjs-dist/build/pdf.min.js _site/vendor/pdf.min.js
+          cp node_modules/pdfjs-dist/build/pdf.worker.min.js _site/vendor/pdf.worker.min.js
+          cp node_modules/heic-to/dist/iife/heic-to.js _site/vendor/heic-to.js
+          cp node_modules/utif/UTIF.min.js _site/vendor/UTIF.min.js
+          cp node_modules/pdfjs-dist/LICENSE _site/vendor/licenses/pdfjs.LICENSE
+          cp node_modules/heic-to/LICENSE _site/vendor/licenses/heic-to.LICENSE
+          cp node_modules/utif/LICENSE _site/vendor/licenses/utif.LICENSE
           touch _site/.nojekyll
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4

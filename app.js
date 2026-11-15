@@ -25,24 +25,28 @@ function loadImage(blob){return new Promise((resolve,reject)=>{const img=new Ima
 function paintScaled(source,w,h){const limit=3000000,scale=Math.min(1,2300/Math.max(w,h),Math.sqrt(limit/(w*h)));const W=Math.max(1,Math.round(w*scale)),H=Math.max(1,Math.round(h*scale));const canvas=canvasFromDimensions(W,H);const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.imageSmoothingQuality='high';ctx.drawImage(source,0,0,W,H);return canvas;}
 const scriptPromises=new Map();
 function lazyScript(url,expected){if(expected())return Promise.resolve();if(!scriptPromises.has(url)){scriptPromises.set(url,new Promise((resolve,reject)=>{const s=document.createElement('script');s.src=url;s.async=true;s.onload=()=>expected()?resolve():reject(new Error('Decoder library did not initialize.'));s.onerror=()=>reject(new Error('Decoder library could not be downloaded. Check the network connection.'));document.head.appendChild(s);}));}return scriptPromises.get(url);}
+async function preferLocalDecoder(local,cdn,ready){
+  try { await lazyScript(local,ready); return true; }
+  catch { await lazyScript(cdn,ready); return false; }
+}
 function cleanedSVG(source){if(/<!DOCTYPE|<!ENTITY/i.test(source))throw new Error('SVG files containing DTD or entity declarations are not accepted.');const xml=new DOMParser().parseFromString(source,'image/svg+xml');if(xml.querySelector('parsererror'))throw new Error('Invalid SVG markup.');const root=xml.documentElement;if(root.localName.toLowerCase()!=='svg')throw new Error('Not an SVG image.');const allowedTags=new Set(['svg','g','path','rect','circle','ellipse','line','polyline','polygon','defs','lineargradient','radialgradient','stop','text','tspan']);const allowedAttrs=new Set(['xmlns','width','height','viewbox','preserveaspectratio','fill','stroke','stroke-width','stroke-linejoin','stroke-linecap','stroke-dasharray','stroke-dashoffset','stroke-opacity','fill-opacity','fill-rule','opacity','d','points','transform','x','y','x1','y1','x2','y2','cx','cy','r','rx','ry','offset','stop-color','stop-opacity','font-family','font-size','font-style','font-weight','text-anchor','dominant-baseline','id']);function clean(node){for(const child of [...node.children]){const t=child.localName?.toLowerCase();if(!allowedTags.has(t)){child.remove();continue;}clean(child);}for(const attr of [...node.attributes]){const n=attr.name.toLowerCase();const value=attr.value;if(!allowedAttrs.has(n)||/url\s*\(|javascript:|data:|https?:|@import|expression\s*\(/i.test(value))node.removeAttribute(attr.name);}}
 clean(root);return new XMLSerializer().serializeToString(xml);}
 async function loadDocument(blob,name,type,page=1){
   const ext=extOf(name),mime=(type||'').toLowerCase();
   if(ext==='pdf'||mime==='application/pdf'){
-    await lazyScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',()=>Boolean(globalThis.pdfjsLib));
-    const pdfjs=globalThis.pdfjsLib;pdfjs.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const local=await preferLocalDecoder('./vendor/pdf.min.js','https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',()=>Boolean(globalThis.pdfjsLib));
+    const pdfjs=globalThis.pdfjsLib;pdfjs.GlobalWorkerOptions.workerSrc=local?new URL('./vendor/pdf.worker.min.js',document.baseURI).href:'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     const pdf=await pdfjs.getDocument({data:new Uint8Array(await blob.arrayBuffer())}).promise;
     const count=pdf.numPages;const n=Math.min(Math.max(page,1),count);const pdfPage=await pdf.getPage(n);const origin=pdfPage.getViewport({scale:1});const factor=Math.min(2.5,2300/Math.max(origin.width,origin.height),Math.sqrt(3000000/(origin.width*origin.height)));
     const view=pdfPage.getViewport({scale:Math.max(.2,factor)});const canvas=canvasFromDimensions(Math.ceil(view.width),Math.ceil(view.height));const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);await pdfPage.render({canvasContext:ctx,viewport:view}).promise;pdf.destroy();return {canvas,pageCount:count,format:'PDF'};
   }
   if(ext==='heic'||ext==='heif'||mime==='image/heic'||mime==='image/heif'){
-    await lazyScript('https://cdn.jsdelivr.net/npm/heic-to@1.6.7/dist/iife/heic-to.js',()=>Boolean(globalThis.HeicTo));
+    await preferLocalDecoder('./vendor/heic-to.js','https://cdn.jsdelivr.net/npm/heic-to@1.6.7/dist/iife/heic-to.js',()=>Boolean(globalThis.HeicTo));
     const converted=await globalThis.HeicTo({blob,type:'image/png'});
     const image=await loadImage(converted);return {canvas:paintScaled(image,image.naturalWidth,image.naturalHeight),pageCount:1,format:'HEIC/HEIF'};
   }
   if(['tif','tiff'].includes(ext)||mime==='image/tiff'){
-    await lazyScript('https://cdn.jsdelivr.net/npm/utif@3.1.0/UTIF.min.js',()=>Boolean(globalThis.UTIF));
+    await preferLocalDecoder('./vendor/UTIF.min.js','https://cdn.jsdelivr.net/npm/utif@3.1.0/UTIF.min.js',()=>Boolean(globalThis.UTIF));
     const buffer=await blob.arrayBuffer();const ifds=globalThis.UTIF.decode(buffer);if(!ifds.length)throw new Error('TIFF has no image frames.');const n=Math.min(Math.max(page,1),ifds.length);const frame=ifds[n-1];globalThis.UTIF.decodeImage(buffer,frame);const rgba=globalThis.UTIF.toRGBA8(frame);
     if(frame.width*frame.height>16000000)throw new Error('TIFF dimensions exceed the limit.');
     const c=canvasFromDimensions(frame.width,frame.height);c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(rgba),frame.width,frame.height),0,0);return {canvas:paintScaled(c,c.width,c.height),pageCount:ifds.length,format:'TIFF'};

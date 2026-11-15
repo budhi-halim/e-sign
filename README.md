@@ -55,13 +55,13 @@ Open `http://127.0.0.1:8769/`. Python is needed only for this optional local sta
 
 ## Third-party format decoders
 
-Loaded only when needed:
+Loaded only when needed, self-hosted on GitHub Pages:
 
 - PDF: Mozilla PDF.js `3.11.174` from cdnjs
 - HEIC/HEIF: `heic-to` `1.6.7` from jsDelivr
 - TIFF: `UTIF` `3.1.0` from jsDelivr
 
-They run in the browser and the application does not upload signature content. For production privacy guarantees, vendor/pin and serve these dependencies locally (and adopt a strict Content Security Policy), as external runtime JavaScript can otherwise technically access document pixels.
+The GitHub Pages deployment workflow installs these exact versions and copies the decoders into `vendor/` under the same Pages origin. For source-only local testing, the app falls back to pinned CDN URLs if `vendor/` is absent. The application never intentionally uploads signature content. Before production integration, eliminate the CDN fallback and enforce a strict Content Security Policy; third-party JavaScript loaded at runtime can technically access document pixels.
 
 ## Tests
 
