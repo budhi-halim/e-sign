@@ -127,21 +127,22 @@ function processSignature(w, h, rgba, settings) {
     inkCount++;
   }
   if (xmax < xmin || inkCount < 10) throw new Error('The algorithm could not isolate enough signature ink. Increase sensitivity or try another image.');
-  const margin = clamp(Number(settings.padding ?? 6),0,20) / 100;
-  const mx = Math.max(8, Math.round((xmax - xmin + 1) * margin));
-  const my = Math.max(8, Math.round((ymax - ymin + 1) * margin));
-  const x0 = Math.max(0, xmin - mx), y0 = Math.max(0, ymin - my);
-  const x1 = Math.min(w, xmax + mx + 1), y1 = Math.min(h, ymax + my + 1);
-  const ow = x1 - x0, oh = y1 - y0;
+  // Padding is a percentage of the detected ink bounding-box dimensions.
+  // Output margins may extend past the original source image boundaries.
+  const margin = clamp(Number(settings.padding ?? 2),0,12) / 100;
+  const inkW = xmax - xmin + 1, inkH = ymax - ymin + 1;
+  const px = Math.ceil(inkW * margin), py = Math.ceil(inkH * margin);
+  const ow = inkW + px * 2, oh = inkH + py * 2;
   const result = new Uint8ClampedArray(ow * oh * 4);
-  for (let y = 0; y < oh; y++) {
-    for (let x = 0; x < ow; x++) {
-      const p = (y * ow + x) * 4;
-      result[p] = result[p + 1] = result[p + 2] = 0;
-      result[p + 3] = alpha[(y + y0) * w + x + x0];
+  for (let y = 0; y < inkH; y++) {
+    const sy = ymin + y;
+    for (let x = 0; x < inkW; x++) {
+      const sx = xmin + x;
+      const p = ((y + py) * ow + x + px) * 4;
+      result[p + 3] = alpha[sy * w + sx];
     }
   }
-  return {width:ow,height:oh,pixels:result.buffer,metadata:{mode:transparentSource?'preserved alpha':'local contrast',inkPixels:inkCount,components:comps.length,retainedComponents:comps.filter(c=>keep[c.label]).length,sourceWidth:w,sourceHeight:h}};
+  return {width:ow,height:oh,pixels:result.buffer,metadata:{mode:transparentSource?'preserved alpha':'local contrast',inkPixels:inkCount,components:comps.length,retainedComponents:comps.filter(c=>keep[c.label]).length,sourceWidth:w,sourceHeight:h,paddingPercent:margin*100,inkWidth:inkW,inkHeight:inkH}};
 }
 self.onmessage = function(event) {
   const {jobId,width,height,pixels,settings} = event.data;
